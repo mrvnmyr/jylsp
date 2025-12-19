@@ -69,7 +69,7 @@ impl SchemaRetriever {
             .block_on(async {
                 let resp = self.client.get(uri).send().await?.error_for_status()?;
                 let bytes = resp.bytes().await?;
-                Ok::<bytes::Bytes, reqwest::Error>(bytes)
+                Ok::<_, reqwest::Error>(bytes)
             })
             .with_context(|| format!("GET {uri}"))?;
 
