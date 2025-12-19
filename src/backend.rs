@@ -52,9 +52,18 @@ impl Backend {
         };
         let expected_version = doc.version;
 
-        let cache = self.cache.clone();
+        if std::env::var_os("DEBUG").is_some() {
+            eprintln!(
+                "[DEBUG] validate_and_publish uri={} version={}",
+                uri, expected_version
+            );
+        }
 
-        let diags = match task::spawn_blocking(move || validate_document(&uri, &doc, &cache)).await {
+        let cache = self.cache.clone();
+        let uri_for_task = uri.clone();
+
+        let diags = match task::spawn_blocking(move || validate_document(&uri_for_task, &doc, &cache)).await
+        {
             Ok(Ok(d)) => d,
             Ok(Err(e)) => {
                 warn!("validation failed: {e:#}");
@@ -82,6 +91,12 @@ impl Backend {
         if let Some(current) = self.get_doc(&uri).await {
             if current.version != expected_version {
                 debug!("skipping publish for stale version {}", expected_version);
+                if std::env::var_os("DEBUG").is_some() {
+                    eprintln!(
+                        "[DEBUG] stale publish skipped uri={} expected={} current={}",
+                        uri, expected_version, current.version
+                    );
+                }
                 return;
             }
         }

@@ -9,6 +9,14 @@ use crate::schema::{resolve_schema_uri, SchemaCache};
 use crate::text_index::TextIndex;
 use crate::yaml_json::yaml_to_json_value;
 
+macro_rules! dprintln {
+    ($($t:tt)*) => {
+        if std::env::var_os("DEBUG").is_some() {
+            eprintln!($($t)*);
+        }
+    };
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocKind {
     Json,
@@ -55,7 +63,8 @@ fn validate_json(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
     let ast = match parse_to_ast(text, &CollectOptions::default(), &ParseOptions::default()) {
         Ok(v) => v,
         Err(e) => {
-            let range = index.range_from_bytes(e.range.start, e.range.end);
+            let r = e.range();
+            let range = index.range_from_bytes(r.start, r.end);
             return Ok(vec![diag(range, format!("JSON parse error: {}", e))]);
         }
     };
@@ -84,23 +93,23 @@ fn validate_json(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
     }
 
     let schema_uri = resolve_schema_uri(uri, &schema_raw)?;
+    dprintln!("[DEBUG] validate_json instance={} schema={}", uri, schema_uri);
+
     let validator = cache.validator_for_schema_uri(&schema_uri)?;
 
     let mut out = Vec::new();
 
     for err in validator.iter_errors(&root_json) {
         let ptr = err.instance_path().to_string();
-        let span = pointer_to_span(&root_ast, &ptr)
-            .unwrap_or_else(|| {
-                let r = root_ast.range();
-                (r.start, r.end)
-            });
+        let span = pointer_to_span(&root_ast, &ptr).unwrap_or_else(|| {
+            dprintln!("[DEBUG] pointer_to_span failed for ptr={ptr}, using root");
+            let r = root_ast.range();
+            (r.start, r.end)
+        });
 
         let range = index.range_from_bytes(span.0, span.1);
-        out.push(diag(
-            range,
-            format!("{err} (instance path: {ptr})"),
-        ));
+        out.push(diag(range, format!("{err} (instance path: {ptr})")));
+
         if out.len() >= cache.cfg.max_errors {
             out.push(diag(
                 Range::default(),
@@ -153,6 +162,8 @@ fn validate_yaml(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
     }
 
     let schema_uri = resolve_schema_uri(uri, &schema_raw)?;
+    dprintln!("[DEBUG] validate_yaml instance={} schema={}", uri, schema_uri);
+
     let validator = cache.validator_for_schema_uri(&schema_uri)?;
 
     let mut out = Vec::new();

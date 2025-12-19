@@ -11,6 +11,14 @@ use url::Url;
 
 use crate::yaml_json::yaml_to_json_value;
 
+macro_rules! dprintln {
+    ($($t:tt)*) => {
+        if std::env::var_os("DEBUG").is_some() {
+            eprintln!($($t)*);
+        }
+    };
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ServerConfig {
     pub validate_formats: bool,
@@ -34,6 +42,12 @@ struct SchemaRetriever {
     client: reqwest::blocking::Client,
 }
 
+impl std::fmt::Debug for SchemaRetriever {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SchemaRetriever").finish_non_exhaustive()
+    }
+}
+
 impl SchemaRetriever {
     fn new() -> anyhow::Result<Self> {
         let client = reqwest::blocking::Client::builder()
@@ -44,6 +58,8 @@ impl SchemaRetriever {
     }
 
     fn retrieve_http(&self, uri: &str) -> anyhow::Result<JsonValue> {
+        dprintln!("[DEBUG] retrieve_http: {uri}");
+
         let resp = self
             .client
             .get(uri)
@@ -68,6 +84,8 @@ impl SchemaRetriever {
         let path = url
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("not a valid file:// URL: {}", url))?;
+        dprintln!("[DEBUG] retrieve_file: {}", path.display());
+
         let bytes = std::fs::read(&path).with_context(|| format!("read schema file: {path:?}"))?;
 
         if let Ok(v) = serde_json::from_slice::<JsonValue>(&bytes) {
@@ -83,20 +101,23 @@ impl SchemaRetriever {
 impl Retrieve for SchemaRetriever {
     fn retrieve(
         &self,
-        uri: Uri<&str>,
+        uri: &Uri<std::string::String>,
     ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let s = uri.as_str();
-        let url = Url::parse(s).map_err(|e| Box::new(RetrieverError(format!(
-            "invalid schema URI: {s}: {e}"
-        ))) as Box<dyn std::error::Error + Send + Sync>)?;
+        dprintln!("[DEBUG] retriever.retrieve: {s}");
+
+        let url = Url::parse(s).map_err(|e| {
+            Box::new(RetrieverError(format!("invalid schema URI: {s}: {e}")))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
         match url.scheme() {
-            "http" | "https" => self
-                .retrieve_http(s)
-                .map_err(|e| Box::new(RetrieverError(format!("failed to retrieve {s}: {e:#}"))) as _),
-            "file" => self
-                .retrieve_file(&url)
-                .map_err(|e| Box::new(RetrieverError(format!("failed to retrieve {s}: {e:#}"))) as _),
+            "http" | "https" => self.retrieve_http(s).map_err(|e| {
+                Box::new(RetrieverError(format!("failed to retrieve {s}: {e:#}"))) as _
+            }),
+            "file" => self.retrieve_file(&url).map_err(|e| {
+                Box::new(RetrieverError(format!("failed to retrieve {s}: {e:#}"))) as _
+            }),
             other => Err(Box::new(RetrieverError(format!(
                 "unsupported schema URI scheme: {other} ({s})"
             ))) as _),
@@ -109,6 +130,14 @@ struct CacheEntry {
     validator: Arc<Validator>,
     // Only tracked for the root schema URI.
     root_mtime: Option<SystemTime>,
+}
+
+impl std::fmt::Debug for CacheEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CacheEntry")
+            .field("root_mtime", &self.root_mtime)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug)]
@@ -135,11 +164,16 @@ impl SchemaCache {
             let guard = self.inner.lock().unwrap();
             if let Some(entry) = guard.get(schema_uri) {
                 if entry.root_mtime.is_some() && entry.root_mtime == root_mtime {
+                    dprintln!("[DEBUG] schema cache hit (file mtime ok): {schema_uri}");
                     return Ok(entry.validator.clone());
                 }
                 if entry.root_mtime.is_none() && root_mtime.is_none() {
+                    dprintln!("[DEBUG] schema cache hit (non-file): {schema_uri}");
                     return Ok(entry.validator.clone());
                 }
+                dprintln!("[DEBUG] schema cache stale: {schema_uri}");
+            } else {
+                dprintln!("[DEBUG] schema cache miss: {schema_uri}");
             }
         }
 
@@ -155,6 +189,7 @@ impl SchemaCache {
         // Very simple cap to avoid unbounded growth.
         if guard.len() > self.cfg.schema_cache_size {
             if let Some(k) = guard.keys().next().cloned() {
+                dprintln!("[DEBUG] schema cache evict: {k}");
                 guard.remove(&k);
             }
         }
@@ -170,7 +205,7 @@ impl SchemaCache {
         // Build a tiny schema that references the external schema by URI.
         let wrapper = serde_json::json!({ "$ref": schema_uri });
 
-        let mut opts = jsonschema::options().with_retriever(Box::new(self.retriever.clone()));
+        let mut opts = jsonschema::options().with_retriever(self.retriever.clone());
         if self.cfg.validate_formats {
             opts = opts.should_validate_formats(true);
         }
@@ -180,6 +215,7 @@ impl SchemaCache {
             .with_context(|| format!("build schema validator for {schema_uri}"))?;
 
         debug!("compiled schema: {schema_uri}");
+        dprintln!("[DEBUG] compiled schema: {schema_uri}");
         Ok(validator)
     }
 }
@@ -215,6 +251,7 @@ pub fn resolve_schema_uri(instance_uri: &Url, raw_schema: &str) -> anyhow::Resul
         || raw_schema.starts_with("https://")
         || raw_schema.starts_with("file://")
     {
+        dprintln!("[DEBUG] resolve_schema_uri: already absolute: {raw_schema}");
         return Ok(raw_schema.to_string());
     }
 
@@ -247,5 +284,7 @@ pub fn resolve_schema_uri(instance_uri: &Url, raw_schema: &str) -> anyhow::Resul
         url.set_fragment(Some(frag));
     }
 
-    Ok(url.to_string())
+    let out = url.to_string();
+    dprintln!("[DEBUG] resolve_schema_uri: {raw_schema} -> {out}");
+    Ok(out)
 }
