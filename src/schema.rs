@@ -53,7 +53,12 @@ impl SchemaRetriever {
     fn new(handle: tokio::runtime::Handle) -> anyhow::Result<Self> {
         // NOTE: Using reqwest::blocking inside a tokio runtime can panic at drop time,
         // because it owns an internal runtime. Use async reqwest + Handle::block_on
-        // from spawn_blocking threads instead.
+        // from spawn_blocking validation threads instead.
+        //
+        // reqwest is configured to use native-tls so we avoid ring/rustls toolchain
+        // requirements (e.g. C/cc for ring) in constrained build environments.
+        dprintln!("[DEBUG] reqwest TLS backend: native-tls");
+
         let client = reqwest::Client::builder()
             .user_agent("jylsp/0.1")
             .timeout(std::time::Duration::from_secs(15))
