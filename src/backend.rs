@@ -13,7 +13,6 @@ use crate::validate::{validate_document, DocKind, StoredDocument};
 #[derive(Debug)]
 pub struct Backend {
     client: Client,
-    cfg: ServerConfig,
     cache: Arc<SchemaCache>,
     docs: Arc<tokio::sync::RwLock<std::collections::HashMap<Url, StoredDocument>>>,
 }
@@ -23,7 +22,6 @@ impl Backend {
         Self {
             client,
             cache: Arc::new(SchemaCache::new(cfg)),
-            cfg,
             docs: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         }
     }
