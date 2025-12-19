@@ -201,26 +201,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
-name = "cgpt-jsonschema-lsp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "jsonc-parser",
- "jsonschema",
- "referencing",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "tower-lsp",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
 name = "clap"
 version = "4.5.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -774,6 +754,26 @@ dependencies = [
  "serde_json",
  "unicode-general-category",
  "uuid-simd",
+]
+
+[[package]]
+name = "jylsp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "jsonc-parser",
+ "jsonschema",
+ "referencing",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tower-lsp",
+ "tracing",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
