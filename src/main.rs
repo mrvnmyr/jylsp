@@ -1,60 +1,46 @@
+use anyhow::Result;
 use clap::Parser;
-use tokio::io::{stdin, stdout};
 use tower_lsp::{LspService, Server};
 use tracing_subscriber::EnvFilter;
 
 mod backend;
 mod schema;
-mod text_index;
+mod tls;
 mod validate;
-mod yaml_json;
 
-use backend::Backend;
-use schema::ServerConfig;
-
-/// JSON/YAML `$schema` validator LSP server.
-#[derive(Debug, Parser)]
-#[command(name = "jylsp", version, about)]
+#[derive(Parser, Debug)]
+#[command(name = "jylsp", version, about = "JSON/YAML $schema validator LSP")]
 struct Args {
-    /// Run the language server over stdio (required by most editors).
+    /// Serve LSP over stdin/stdout (for Vim/YouCompleteMe, etc.)
     #[arg(long)]
     stdio: bool,
-
-    /// Enable `format` checks in JSON Schema validation (off by default).
-    #[arg(long, default_value_t = false)]
-    validate_formats: bool,
-
-    /// Maximum number of diagnostics per document.
-    #[arg(long, default_value_t = 100)]
-    max_errors: usize,
-
-    /// Maximum number of compiled schemas kept in memory.
-    #[arg(long, default_value_t = 64)]
-    schema_cache_size: usize,
 }
 
 #[tokio::main(flavor = "multi_thread")]
-async fn main() -> anyhow::Result<()> {
-    // Only log to stderr; stdout is reserved for the LSP wire protocol.
+async fn main() -> Result<()> {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,tower_lsp=info"));
+
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse()?))
-        .with_writer(std::io::stderr)
+        .with_env_filter(filter)
+        .with_target(false)
         .init();
+
+    // Reqwest is compiled with rustls "no-provider" to avoid C/cc + OpenSSL.
+    // Install a pure-Rust crypto provider (RustCrypto) early.
+    tls::ensure_rustls_rustcrypto_provider();
 
     let args = Args::parse();
     if !args.stdio {
-        anyhow::bail!("This server is intended to be run with --stdio");
+        eprintln!("error: only --stdio is supported");
+        std::process::exit(2);
     }
 
-    let cfg = ServerConfig {
-        validate_formats: args.validate_formats,
-        max_errors: args.max_errors,
-        schema_cache_size: args.schema_cache_size,
-    };
+    let stdin = tokio::io::stdin();
+    let stdout = tokio::io::stdout();
 
-    let handle = tokio::runtime::Handle::current();
-    let (service, socket) = LspService::new(move |client| Backend::new(client, cfg, handle.clone()));
-    Server::new(stdin(), stdout(), socket).serve(service).await;
+    let (service, socket) = LspService::new(|client| backend::Backend::new(client));
+    Server::new(stdin, stdout, socket).serve(service).await;
 
     Ok(())
 }
