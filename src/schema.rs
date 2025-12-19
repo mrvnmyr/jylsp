@@ -51,15 +51,11 @@ impl std::fmt::Debug for SchemaRetriever {
 
 impl SchemaRetriever {
     fn new(handle: tokio::runtime::Handle) -> anyhow::Result<Self> {
-        // NOTE: Using reqwest::blocking inside a tokio runtime can panic at drop time,
-        // because it owns an internal runtime. Use async reqwest + Handle::block_on
-        // from spawn_blocking validation threads instead.
-        //
-        // reqwest is configured to use native-tls so we avoid ring/rustls toolchain
-        // requirements (e.g. C/cc for ring) in constrained build environments.
-        dprintln!("[DEBUG] reqwest TLS backend: native-tls");
+        // Use rustls-rustcrypto backend — pure Rust, no C/cc or OpenSSL required.
+        dprintln!("[DEBUG] reqwest TLS backend: rustls-rustcrypto (pure Rust)");
 
         let client = reqwest::Client::builder()
+            .use_rustls_tls()
             .user_agent("jylsp/0.1")
             .timeout(std::time::Duration::from_secs(15))
             .build()?;
@@ -136,7 +132,6 @@ impl Retrieve for SchemaRetriever {
 #[derive(Clone)]
 struct CacheEntry {
     validator: Arc<Validator>,
-    // Only tracked for the root schema URI.
     root_mtime: Option<SystemTime>,
 }
 
@@ -194,7 +189,6 @@ impl SchemaCache {
         let mut guard = self.inner.lock().unwrap();
         guard.insert(schema_uri.to_string(), entry);
 
-        // Very simple cap to avoid unbounded growth.
         if guard.len() > self.cfg.schema_cache_size {
             if let Some(k) = guard.keys().next().cloned() {
                 dprintln!("[DEBUG] schema cache evict: {k}");
@@ -210,7 +204,6 @@ impl SchemaCache {
     }
 
     fn build_validator(&self, schema_uri: &str) -> anyhow::Result<Validator> {
-        // Build a tiny schema that references the external schema by URI.
         let wrapper = serde_json::json!({ "$ref": schema_uri });
 
         let mut opts = jsonschema::options().with_retriever(self.retriever.clone());
@@ -242,19 +235,12 @@ fn schema_uri_mtime(schema_uri: &str) -> Option<SystemTime> {
     std::fs::metadata(path).ok().and_then(|m| m.modified().ok())
 }
 
-/// Resolve a `$schema` string from an instance file to an absolute URI that the validator can fetch.
-///
-/// - `https://...` stays as is
-/// - `file:///...` stays as is
-/// - `./relative/path.json` becomes `file:///ABS/.../relative/path.json`
-/// - fragments like `.../schema.json#/defs/Foo` are preserved
 pub fn resolve_schema_uri(instance_uri: &Url, raw_schema: &str) -> anyhow::Result<String> {
     let raw_schema = raw_schema.trim();
     if raw_schema.is_empty() {
         anyhow::bail!("empty $schema");
     }
 
-    // Already an absolute URL?
     if raw_schema.starts_with("http://")
         || raw_schema.starts_with("https://")
         || raw_schema.starts_with("file://")
@@ -263,7 +249,6 @@ pub fn resolve_schema_uri(instance_uri: &Url, raw_schema: &str) -> anyhow::Resul
         return Ok(raw_schema.to_string());
     }
 
-    // Treat as local path (absolute or relative to the instance file).
     let (path_part, frag_part) = match raw_schema.split_once('#') {
         Some((p, f)) => (p, Some(f)),
         None => (raw_schema, None),
@@ -283,7 +268,6 @@ pub fn resolve_schema_uri(instance_uri: &Url, raw_schema: &str) -> anyhow::Resul
         base_dir.join(schema_path)
     };
 
-    // Canonicalize only if it exists, to avoid losing "missing file" info.
     let abs = std::fs::canonicalize(&abs).unwrap_or(abs);
 
     let mut url = Url::from_file_path(&abs)
