@@ -14,7 +14,7 @@ use schema::ServerConfig;
 
 /// JSON/YAML `$schema` validator LSP server.
 #[derive(Debug, Parser)]
-#[command(name = "cgpt-jsonschema-lsp", version, about)]
+#[command(name = "jylsp", version, about)]
 struct Args {
     /// Run the language server over stdio (required by most editors).
     #[arg(long)]
@@ -52,7 +52,8 @@ async fn main() -> anyhow::Result<()> {
         schema_cache_size: args.schema_cache_size,
     };
 
-    let (service, socket) = LspService::new(|client| Backend::new(client, cfg));
+    let handle = tokio::runtime::Handle::current();
+    let (service, socket) = LspService::new(move |client| Backend::new(client, cfg, handle.clone()));
     Server::new(stdin(), stdout(), socket).serve(service).await;
 
     Ok(())

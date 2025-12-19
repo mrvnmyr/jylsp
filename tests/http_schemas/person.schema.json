@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "http://example.invalid/person.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "age"],
+  "properties": {
+    "name": { "type": "string" },
+    "age": { "type": "integer" }
+  }
+}

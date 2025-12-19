@@ -39,7 +39,8 @@ impl std::error::Error for RetrieverError {}
 
 #[derive(Clone)]
 struct SchemaRetriever {
-    client: reqwest::blocking::Client,
+    client: reqwest::Client,
+    handle: tokio::runtime::Handle,
 }
 
 impl std::fmt::Debug for SchemaRetriever {
@@ -49,26 +50,28 @@ impl std::fmt::Debug for SchemaRetriever {
 }
 
 impl SchemaRetriever {
-    fn new() -> anyhow::Result<Self> {
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("cgpt-jsonschema-lsp/0.1")
+    fn new(handle: tokio::runtime::Handle) -> anyhow::Result<Self> {
+        // NOTE: Using reqwest::blocking inside a tokio runtime can panic at drop time,
+        // because it owns an internal runtime. Use async reqwest + Handle::block_on
+        // from spawn_blocking threads instead.
+        let client = reqwest::Client::builder()
+            .user_agent("jylsp/0.1")
             .timeout(std::time::Duration::from_secs(15))
             .build()?;
-        Ok(Self { client })
+        Ok(Self { client, handle })
     }
 
     fn retrieve_http(&self, uri: &str) -> anyhow::Result<JsonValue> {
         dprintln!("[DEBUG] retrieve_http: {uri}");
 
-        let resp = self
-            .client
-            .get(uri)
-            .send()
-            .with_context(|| format!("GET {uri}"))?
-            .error_for_status()
-            .with_context(|| format!("GET {uri} (status)"))?;
-
-        let bytes = resp.bytes().with_context(|| format!("GET {uri} (body)"))?;
+        let bytes = self
+            .handle
+            .block_on(async {
+                let resp = self.client.get(uri).send().await?.error_for_status()?;
+                let bytes = resp.bytes().await?;
+                Ok::<bytes::Bytes, reqwest::Error>(bytes)
+            })
+            .with_context(|| format!("GET {uri}"))?;
 
         // Try JSON first, then YAML.
         if let Ok(v) = serde_json::from_slice::<JsonValue>(&bytes) {
@@ -148,8 +151,8 @@ pub struct SchemaCache {
 }
 
 impl SchemaCache {
-    pub fn new(cfg: ServerConfig) -> Self {
-        let retriever = SchemaRetriever::new().expect("failed to build reqwest client");
+    pub fn new(cfg: ServerConfig, handle: tokio::runtime::Handle) -> Self {
+        let retriever = SchemaRetriever::new(handle).expect("failed to build reqwest client");
         Self {
             cfg,
             retriever,

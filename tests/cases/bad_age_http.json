@@ -1,0 +1,5 @@
+{
+  "$schema": "http://127.0.0.1:__PORT__/person.schema.json",
+  "name": "Bob",
+  "age": "nope"
+}

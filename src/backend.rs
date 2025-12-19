@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use tokio::runtime::Handle;
 use tokio::task;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -18,10 +19,10 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn new(client: Client, cfg: ServerConfig) -> Self {
+    pub fn new(client: Client, cfg: ServerConfig, handle: Handle) -> Self {
         Self {
             client,
-            cache: Arc::new(SchemaCache::new(cfg)),
+            cache: Arc::new(SchemaCache::new(cfg, handle)),
             docs: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         }
     }
@@ -68,7 +69,7 @@ impl Backend {
                 vec![Diagnostic {
                     range: Range::default(),
                     severity: Some(DiagnosticSeverity::ERROR),
-                    source: Some("cgpt-jsonschema-lsp".to_string()),
+                    source: Some("jylsp".to_string()),
                     message: format!("validator failure: {e:#}"),
                     ..Default::default()
                 }]
@@ -78,7 +79,7 @@ impl Backend {
                 vec![Diagnostic {
                     range: Range::default(),
                     severity: Some(DiagnosticSeverity::ERROR),
-                    source: Some("cgpt-jsonschema-lsp".to_string()),
+                    source: Some("jylsp".to_string()),
                     message: format!("validator task failed: {join_err}"),
                     ..Default::default()
                 }]
@@ -114,7 +115,7 @@ impl LanguageServer for Backend {
         Ok(InitializeResult {
             capabilities: caps,
             server_info: Some(ServerInfo {
-                name: "cgpt-jsonschema-lsp".to_string(),
+                name: "jylsp".to_string(),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
             ..Default::default()
@@ -123,7 +124,7 @@ impl LanguageServer for Backend {
 
     async fn initialized(&self, _params: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "cgpt-jsonschema-lsp initialized")
+            .log_message(MessageType::INFO, "jylsp initialized")
             .await;
     }
 
