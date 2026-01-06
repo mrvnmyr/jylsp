@@ -145,7 +145,7 @@ def main() -> int:
 
     # Ensure binary exists
     exe = "jylsp.exe" if os.name == "nt" else "jylsp"
-    bin_path = repo / "target" / "debug" / exe
+    bin_path = repo / "target" / "release" / exe
     if not bin_path.exists():
         dprint("building cargo project")
         subprocess.run(["cargo", "build"], cwd=str(repo), check=True)
