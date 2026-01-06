@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "persons.schema.json",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["name", "age"],
+    "properties": {
+      "name": { "type": "string" },
+      "age": { "type": "integer" }
+    }
+  }
+}

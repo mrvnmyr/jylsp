@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=./schemas/people.schema.json
+name: Bob
+age: "not a number"
+---
+name: Alice
+age: "nope"

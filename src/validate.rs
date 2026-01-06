@@ -1,6 +1,7 @@
 use anyhow::Context;
 use jsonc_parser::{parse_to_ast, CollectOptions, ParseOptions};
 use jsonc_parser::common::Ranged;
+use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 use url::Url;
@@ -128,7 +129,7 @@ fn validate_json(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
 fn validate_yaml(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<Vec<Diagnostic>> {
     let _index = TextIndex::new(text);
 
-    let yaml: serde_yaml::Value = match serde_yaml::from_str(text) {
+    let yaml: serde_yaml::Value = match parse_yaml_documents(text) {
         Ok(v) => v,
         Err(e) => {
             let range = if let Some(loc) = e.location() {
@@ -201,6 +202,20 @@ fn find_yaml_schema_comment(text: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn parse_yaml_documents(text: &str) -> Result<serde_yaml::Value, serde_yaml::Error> {
+    let mut docs = Vec::new();
+    let deserializer = serde_yaml::Deserializer::from_str(text);
+    for doc in deserializer {
+        let value = serde_yaml::Value::deserialize(doc)?;
+        docs.push(value);
+    }
+    match docs.len() {
+        0 => Ok(serde_yaml::Value::Null),
+        1 => Ok(docs.remove(0)),
+        _ => Ok(serde_yaml::Value::Sequence(docs)),
+    }
 }
 
 fn diag(range: Range, message: String) -> Diagnostic {

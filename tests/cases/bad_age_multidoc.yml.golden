@@ -1,0 +1,5 @@
+{
+  "expect_errors": true,
+  "must_contain": ["instance path: /0/age", "instance path: /1/age", "integer"],
+  "must_not_default_range": false
+}
