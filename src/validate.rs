@@ -148,10 +148,10 @@ fn validate_yaml(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
 
     let mut json = yaml_to_json_value(&yaml)?;
 
-    let schema_raw = match &json {
+    let schema_raw = find_yaml_schema_comment(text).or_else(|| match &json {
         JsonValue::Object(map) => map.get("$schema").and_then(|v| v.as_str()).map(str::to_string),
         _ => None,
-    };
+    });
 
     let Some(schema_raw) = schema_raw else {
         return Ok(vec![]);
@@ -178,6 +178,29 @@ fn validate_yaml(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
         }
     }
     Ok(out)
+}
+
+fn find_yaml_schema_comment(text: &str) -> Option<String> {
+    const DIRECTIVE: &str = "yaml-language-server:";
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with('#') {
+            continue;
+        }
+        let comment = trimmed.trim_start_matches('#').trim_start();
+        if !comment.starts_with(DIRECTIVE) {
+            continue;
+        }
+        let rest = comment[DIRECTIVE.len()..].trim();
+        for token in rest.split_whitespace() {
+            if let Some(schema) = token.strip_prefix("$schema=") {
+                if !schema.is_empty() {
+                    return Some(schema.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 fn diag(range: Range, message: String) -> Diagnostic {
