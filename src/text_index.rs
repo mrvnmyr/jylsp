@@ -77,8 +77,4 @@ impl TextIndex {
         }
         Range { start: s, end: e }
     }
-
-    pub fn text(&self) -> &str {
-        &self.text
-    }
 }
