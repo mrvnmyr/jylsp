@@ -1,6 +1,7 @@
 /target
 /.idea
 /.vscode
+/.pixi
 *.swp
 *.swo
 .DS_Store
