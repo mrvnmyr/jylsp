@@ -10,6 +10,7 @@ mod text_index;
 mod tls;
 mod validate;
 mod yaml_json;
+mod yaml_spans;
 
 fn debug_enabled() -> bool {
     std::env::var_os("DEBUG").is_some()
@@ -25,8 +26,8 @@ struct Args {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,tower_lsp=info"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,tower_lsp=info"));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)

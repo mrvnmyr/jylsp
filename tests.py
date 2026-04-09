@@ -232,6 +232,7 @@ def main() -> int:
             expect_errors = bool(golden.get("expect_errors", True))
             must_contain = golden.get("must_contain", [])
             must_not_default_range = bool(golden.get("must_not_default_range", False))
+            must_start_on_lines = golden.get("must_start_on_lines", [])
 
             messages = "\n".join([d.get("message", "") for d in diags])
             if expect_errors and not diags:
@@ -246,6 +247,20 @@ def main() -> int:
             if must_not_default_range and diags:
                 if range_is_default(diags[0]):
                     print(f"FAIL {p.name}: expected non-default range", file=sys.stderr)
+                    failures += 1
+            if must_start_on_lines:
+                actual_lines = sorted(
+                    [
+                        (((d.get("range") or {}).get("start") or {}).get("line"))
+                        for d in diags
+                    ]
+                )
+                expected_lines = sorted(must_start_on_lines)
+                if actual_lines != expected_lines:
+                    print(
+                        f"FAIL {p.name}: expected diagnostic start lines {expected_lines}, got {actual_lines}",
+                        file=sys.stderr,
+                    )
                     failures += 1
         else:
             if diags:

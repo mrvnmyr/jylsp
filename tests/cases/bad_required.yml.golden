@@ -1,5 +1,5 @@
 {
   "expect_errors": true,
   "must_contain": ["required", "name"],
-  "must_not_default_range": false
+  "must_not_default_range": true
 }

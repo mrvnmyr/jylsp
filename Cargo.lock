@@ -1087,6 +1087,7 @@ dependencies = [
  "tower-lsp",
  "tracing",
  "tracing-subscriber",
+ "unsafe-libyaml",
  "url",
 ]
 

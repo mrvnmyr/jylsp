@@ -1,6 +1,6 @@
 use anyhow::Context;
-use jsonc_parser::{parse_to_ast, CollectOptions, ParseOptions};
 use jsonc_parser::common::Ranged;
+use jsonc_parser::{parse_to_ast, CollectOptions, ParseOptions};
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
@@ -9,6 +9,7 @@ use url::Url;
 use crate::schema::{resolve_schema_uri, SchemaCache};
 use crate::text_index::TextIndex;
 use crate::yaml_json::yaml_to_json_value;
+use crate::yaml_spans::YamlPointerMap;
 
 macro_rules! dprintln {
     ($($t:tt)*) => {
@@ -72,7 +73,12 @@ fn validate_json(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
 
     let root_ast = match ast.value {
         Some(v) => v,
-        None => return Ok(vec![diag(Range::default(), "Empty JSON document".to_string())]),
+        None => {
+            return Ok(vec![diag(
+                Range::default(),
+                "Empty JSON document".to_string(),
+            )])
+        }
     };
 
     let mut root_json: JsonValue =
@@ -81,7 +87,10 @@ fn validate_json(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
     // `$schema` in instance files is typically an editor directive, not part of the instance.
     // Validate a view without `$schema` to avoid false positives with `additionalProperties: false`.
     let schema_raw = match &root_json {
-        JsonValue::Object(map) => map.get("$schema").and_then(|v| v.as_str()).map(str::to_string),
+        JsonValue::Object(map) => map
+            .get("$schema")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         _ => None,
     };
 
@@ -94,7 +103,11 @@ fn validate_json(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
     }
 
     let schema_uri = resolve_schema_uri(uri, &schema_raw)?;
-    dprintln!("[DEBUG] validate_json instance={} schema={}", uri, schema_uri);
+    dprintln!(
+        "[DEBUG] validate_json instance={} schema={}",
+        uri,
+        schema_uri
+    );
 
     let validator = cache.validator_for_schema_uri(&schema_uri)?;
 
@@ -127,7 +140,7 @@ fn validate_json(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
 }
 
 fn validate_yaml(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<Vec<Diagnostic>> {
-    let _index = TextIndex::new(text);
+    let index = TextIndex::new(text);
 
     let yaml: serde_yaml::Value = match parse_yaml_documents(text) {
         Ok(v) => v,
@@ -137,8 +150,14 @@ fn validate_yaml(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
                 let line = loc.line().saturating_sub(1) as u32;
                 let col = loc.column().saturating_sub(1) as u32;
                 Range {
-                    start: Position { line, character: col },
-                    end: Position { line, character: col },
+                    start: Position {
+                        line,
+                        character: col,
+                    },
+                    end: Position {
+                        line,
+                        character: col,
+                    },
                 }
             } else {
                 Range::default()
@@ -150,7 +169,10 @@ fn validate_yaml(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
     let mut json = yaml_to_json_value(&yaml)?;
 
     let schema_raw = find_yaml_schema_comment(text).or_else(|| match &json {
-        JsonValue::Object(map) => map.get("$schema").and_then(|v| v.as_str()).map(str::to_string),
+        JsonValue::Object(map) => map
+            .get("$schema")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         _ => None,
     });
 
@@ -163,18 +185,33 @@ fn validate_yaml(uri: &Url, text: &str, cache: &SchemaCache) -> anyhow::Result<V
     }
 
     let schema_uri = resolve_schema_uri(uri, &schema_raw)?;
-    dprintln!("[DEBUG] validate_yaml instance={} schema={}", uri, schema_uri);
+    dprintln!(
+        "[DEBUG] validate_yaml instance={} schema={}",
+        uri,
+        schema_uri
+    );
 
     let validator = cache.validator_for_schema_uri(&schema_uri)?;
+    let pointer_map = YamlPointerMap::parse(text);
 
     let mut out = Vec::new();
     for err in validator.iter_errors(&json) {
-        // Mapping JSON pointers back to YAML source spans is non-trivial; keep it simple.
-        out.push(diag(
-            Range::default(),
-            format!("{err} (instance path: {})", err.instance_path()),
-        ));
+        let ptr = err.instance_path().to_string();
+        let range = pointer_map
+            .as_ref()
+            .and_then(|map| map.lookup(&ptr))
+            .map(|(start, end)| index.range_from_bytes(start, end))
+            .unwrap_or_else(Range::default);
+
+        out.push(diag(range, format!("{err} (instance path: {ptr})")));
         if out.len() >= cache.cfg.max_errors {
+            out.push(diag(
+                Range::default(),
+                format!(
+                    "Too many errors; stopping after {} (use --max-errors to raise)",
+                    cache.cfg.max_errors
+                ),
+            ));
             break;
         }
     }

@@ -55,4 +55,4 @@ Notes / expectations
   - a local path like ``./schemas/foo.schema.json`` (resolved relative to the edited file)
 
 - For JSON files, schema validation errors are mapped to exact source ranges using a JSON AST with byte spans.
-- For YAML files, schema errors are reported at the start of the document (mapping JSON pointers back to YAML source ranges is non-trivial).
+- For YAML files, schema validation errors are mapped back to YAML node ranges using libyaml source marks, so field-level errors land on the offending field line.
